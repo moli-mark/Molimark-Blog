@@ -1,0 +1,937 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" data-default-color-scheme=auto>
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/profile.png">
+  <link rel="icon" href="/img/profile.png">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Molimark">
+  <meta name="keywords" content="">
+  
+    <meta name="description" content="导读距离 JDK 8 发布已经过去了 9 年，那么这 9 年的时间，JDK 做了哪些升级？是否有新的重大特性值得尝试？能否解决一些现在令人苦恼的问题？带着这份疑问进行了 JDK 版本的调研与升级踩坑记录，希望本文能够帮到大家   前言 自 2014 年发布以来， JDK 8 一直都是相当热门的 JDK 版本。其原因就是对底层数据结构、JVM 性能以及开发体验做了重大升级，得到了开发人员的认可。但距">
+<meta property="og:type" content="article">
+<meta property="og:title" content="JDK17营销初体验——亚毫秒停顿ZGC落地实践">
+<meta property="og:url" content="https://moli-mark.github.io/2025/06/29/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5/index.html">
+<meta property="og:site_name" content="Molimark&#39;s Blog">
+<meta property="og:description" content="导读距离 JDK 8 发布已经过去了 9 年，那么这 9 年的时间，JDK 做了哪些升级？是否有新的重大特性值得尝试？能否解决一些现在令人苦恼的问题？带着这份疑问进行了 JDK 版本的调研与升级踩坑记录，希望本文能够帮到大家   前言 自 2014 年发布以来， JDK 8 一直都是相当热门的 JDK 版本。其原因就是对底层数据结构、JVM 性能以及开发体验做了重大升级，得到了开发人员的认可。但距">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259771.png">
+<meta property="og:image" content="https://mmbiz.qpic.cn/mmbiz_png/RQv8vncPm1Uho1szsw2HxpQczHKibCc9VJV9viaFjtxFE6aYicQWBPPh8tGqlQFWOI7BicORANPBAlflrHYlgas5JA/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259774.png">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259844.png">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259823.png">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259800.png">
+<meta property="og:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259807.png">
+<meta property="article:published_time" content="2025-06-29T06:36:47.000Z">
+<meta property="article:modified_time" content="2025-06-29T06:38:21.653Z">
+<meta property="article:author" content="Molimark">
+<meta property="article:tag" content="Java">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://moli-mark.github.io/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259771.png">
+  
+  
+    <meta name="referrer" content="no-referrer-when-downgrade">
+  
+  
+  <title>JDK17营销初体验——亚毫秒停顿ZGC落地实践 - Molimark&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/github-markdown-css/4.0.0/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/hint.css/2.7.0/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1736178_k526ubmyhba.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+    <link id="highlight-css-dark" rel="stylesheet" href="/css/highlight-dark.css" />
+  
+
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"moli-mark.github.io","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"left","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":false,"follow_dnt":true,"baidu":null,"google":{"measurement_id":null},"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null}},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Molimark&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/" target="_self">
+                <i class="iconfont icon-category-fill"></i>
+                <span>分类</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/tags/" target="_self">
+                <i class="iconfont icon-tags-fill"></i>
+                <span>标签</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+          <li class="nav-item" id="color-toggle-btn">
+            <a class="nav-link" target="_self" href="javascript:;" aria-label="Color Toggle">
+              <i class="iconfont icon-dark" id="color-toggle-icon"></i>
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('/img/default.png') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="JDK17营销初体验——亚毫秒停顿ZGC落地实践"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-author" aria-hidden="true"></i>
+        Molimark
+      </span>
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2025-06-29 14:36" pubdate>
+          2025年6月29日 下午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          4.6k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          39 分钟
+        
+      </span>
+    
+
+    
+    
+      
+        <span id="busuanzi_container_page_pv" style="display: none">
+          <i class="iconfont icon-eye" aria-hidden="true"></i>
+          <span id="busuanzi_value_page_pv"></span> 次
+        </span>
+        
+
+      
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="padding-left: 2rem; margin-right: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">JDK17营销初体验——亚毫秒停顿ZGC落地实践</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>距离 JDK 8 发布已经过去了 9 年，那么这 9 年的时间，JDK 做了哪些升级？是否有新的重大特性值得尝试？能否解决一些现在令人苦恼的问题？带着这份疑问进行了 JDK 版本的调研与升级踩坑记录，希望本文能够帮到大家  </p>
+<p><strong>前言</strong></p>
+<p>自 2014 年发布以来， JDK 8 一直都是相当热门的 JDK 版本。其原因就是对底层数据结构、JVM 性能以及开发体验做了重大升级，得到了开发人员的认可。但距离 JDK 8 发布已经过去了 9 年，那么这 9 年的时间，JDK 做了哪些升级？是否有新的重大特性值得尝试？能否解决一些现在令人苦恼的问题？带着这份疑问进行了 JDK 版本的调研与尝试</p>
+<h1 id="新特性一览"><a href="#新特性一览" class="headerlink" title="新特性一览"></a><strong>新特性一览</strong></h1><p>理解，首先 MCube 会依据模板缓存状态判断是否需要网络获取最新模板，当获取到模板后进行模板加载，加载阶段会将产物转换为视图树的结构，转换完成后将通过表达式引擎解析表达式并取得正确的值，通过事件解析引擎解析用户自定义事件并完成事件的绑定，完成解析赋值以及事件绑定后进行视图的渲染，最终将目标页面展示到屏幕。</p>
+<p>现如今的 JDK 发布节奏变快，每次新出一个版本，不禁会令人感叹：“我还在用 JDK 8，现在都 JDK 9、10、11 …… 21 了？”然后就会瞅瞅又多了哪些新特性。有一些新特性很香，但考虑一番还是决定放弃升级。主要原因除了新增特性对用户来说改变不大以外，最重要的就是 JDK 9 带来的模块化（JEP 200），导致升级十分困难。</p>
+<p>模块化的本意是将 JDK 划分为一组模块，这些模块可以在编译时、构建时和运行时组合成各种配置，主要目标是使实现更容易扩展到小型设备，提高安全性和可维护性，并提高应用程序性能。但付出的代价非常大，最直观的影响就是，一些 JDK 内部类不能访问了。</p>
+<p>但是除此之外，并没有太多阻塞升级的问题，后续版本都是一些很香的特性：</p>
+<ul>
+<li><p>G1 （JEP 248、JEP 307、JEP 344、JEP 345、JEP 346），提供一个支持指定暂停时间、NUMA 感知内存分配的高性能垃圾回收器</p>
+</li>
+<li><p>ZGC （JEP 333、JEP 376、JEP 377），一个支持 NUMA，暂停时间不应超过 1ms 的垃圾回收器</p>
+</li>
+<li><p>并发 API 更新（JEP 266），提供 publish-subscribe 框架，支持响应式流发布 - 订阅框架的接口，以及 CompletableFuture 的进一步完善</p>
+</li>
+<li><p>集合工厂方法（JEP 269），类似 Guava，支持快速创建有初始元素的集合</p>
+</li>
+<li><p>新版 HTTP 客户端（JEP 321），一个现代化、支持异步、WebSocket、响应式流的 JDK 内置 API</p>
+</li>
+<li><p>空指针 NPE 直接给出异常方法位置（JEP 358），以前只给代码行数，不告诉哪个方法，一行多个方法的写法一但出现空指针，全靠程序员上下文分析推理</p>
+</li>
+<li><p>instanceof 的模式匹配（JEP 394），判断类型后再也不用强转了</p>
+</li>
+<li><p>数据记录类（JEP 395），一个标准的值聚合类，帮助程序员专注于对不可变数据进行建模，实现数据驱动</p>
+</li>
+<li><p>Switch 表达式语法改进（JEP 361），改变 Switch 又臭又长，易于出错的现状</p>
+</li>
+<li><p>文本块（JEP 378），支持二维文本块，而不是像现在一样通过 + 号自行拼接</p>
+</li>
+<li><p>密封类（JEP 409），提供一种限制进行扩展的语法，超类应该可以被广泛访问（因为它代表了用户的重要抽象），但不能广泛扩展（因为它的子类应该仅限于作者已知的子类）</p>
+</li>
+<li><p>以及一些未提到的底层数据结构优化，JVM 性能提升……</p>
+</li>
+</ul>
+<p>这么多的优点，恰好能解决当前遇到的一些问题，因此决定进行 JDK 升级。</p>
+<p><strong>03</strong> </p>
+<h1 id="升级"><a href="#升级" class="headerlink" title="升级"></a><strong>升级</strong></h1><p>理解，首先 MCube 会依据模板缓存状态判断是否需要网络获取最新模板，当获取到模板后进行模板加载，加载阶段会将产物转换为视图树的结构，转换完成后将通过表达式引擎解析表达式并取得正确的值，通过事件解析引擎解析用户自定义事件并完成事件的绑定，完成解析赋值以及事件绑定后进行视图的渲染，最终将目标页面展示到屏幕。</p>
+<p><strong>3.1  升级应用评估</strong></p>
+<p>首先自然是要考虑要将哪些应用进行升级。根据以下条件进行应用筛选：</p>
+<ol>
+<li><p>第一，也是最重要的一点，此系统可以通过升级，解决现有问题与瓶颈</p>
+</li>
+<li><p>第二，有完备的机制能够进行快速回归与验证，如完备的单元测试，自动化测试覆盖能力，便捷的生产压测能力等，底层的升级一定要做好完备的验证</p>
+</li>
+<li><p>第三，技术债务一定要少，不至于在升级过程中遇到一些必须解决的技术债，给升级增加难度</p>
+</li>
+<li><p>第四，负责升级的人对这个系统都很了解，除核心业务逻辑外，还能够了解引入了哪些中间件与依赖，使用了中间件的哪些功能，中间件升级后，大量不兼容的改动是否对现有系统造成影响</p>
+</li>
+</ol>
+<p>最终选取了一个结算页、收银台展示无券支付营销的应用进行升级。此应用特点如下：</p>
+<ul>
+<li><p>作为核心链路的应用之一，接口响应时间要求很高，GC 是其耗时抖动的瓶颈之一</p>
+</li>
+<li><p>业务正在进行快速迭代发展，随着降本增效策略的落地，营销策略进一步精细化，营销种类、数量、范围进一步增加，给系统性能带来更大的挑战</p>
+</li>
+<li><p>日常流量不低，整点存在突发流量，并且需要承接大促流量</p>
+</li>
+<li><p>核心链路覆盖了单元测试，测试环境具备自动化回归能力，预发、生产支持常态化压测与生产流量回放</p>
+</li>
+<li><p>非 Web 应用，仅使用各个中间件的基础功能，升级出现不兼容的问题小</p>
+</li>
+<li><p>维护了 3 年，经历过多次重构，历史问题较少，几乎没有技术债务</p>
+</li>
+</ul>
+<p>针对以上特点，此应用很适合进行 JDK 17 升级。此应用基于 JDK 8，SpringBoot 2.0.8，除常见外部基础组件外，还使用以下公司内部中间件：UMP、SGM、DUCC、CDS、JMQ、JSF、R2M。</p>
+<p><strong>3.2  升级效果</strong></p>
+<p>可以先看下升级后压测的效果：</p>
+<p>纯计算代码不再受 GC 影响</p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259771.png" srcset="/img/loading.gif" lazyload alt="图片">图1.纯计算代码不再受 GC 影响</p>
+<p>升级前</p>
+<p><img src="https://mmbiz.qpic.cn/mmbiz_png/RQv8vncPm1Uho1szsw2HxpQczHKibCc9VJV9viaFjtxFE6aYicQWBPPh8tGqlQFWOI7BicORANPBAlflrHYlgas5JA/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1" srcset="/img/loading.gif" lazyload alt="图片">图2.升级前示意</p>
+<p>升级后</p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259774.png" srcset="/img/loading.gif" lazyload alt="图片">图3.升级后示意</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>吞吐量</th>
+<th>平均耗时</th>
+<th>最大耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 8 G1</td>
+<td>99.966%</td>
+<td>35.7ms</td>
+<td>120ms</td>
+</tr>
+<tr>
+<td>JDK 17 ZGC</td>
+<td>99.999%</td>
+<td>0.0254ms</td>
+<td>0.106ms</td>
+</tr>
+</tbody></table>
+<p>升级后吞吐量几乎不受影响（甚至提升 0.01%），GC 平均耗时下降 1405 倍，GC 最大耗时下降 1132 倍。</p>
+<p><strong>3.3  升级步骤</strong></p>
+<h3 id="升级-JDK-编译版本"><a href="#升级-JDK-编译版本" class="headerlink" title="升级 JDK 编译版本"></a><strong>升级 JDK 编译版本</strong></h3><p>首先自然是修改 maven 中指定的 JDK 版本，可以先升级到 JDK 11，同时修改 maven 编译插件。</p>
+<figure class="highlight applescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs applescript">&lt;java.<span class="hljs-built_in">version</span>&gt;<span class="hljs-number">11</span>&lt;/java.<span class="hljs-built_in">version</span>&gt;<br></code></pre></td></tr></table></figure>
+
+<h3 id="引入缺少的依赖"><a href="#引入缺少的依赖" class="headerlink" title="引入缺少的依赖"></a><strong>引入缺少的依赖</strong></h3><p>然后就可以进行本地编译了，此时会暴露一些很简单的问题，比如找不到包、类等等。原因就是 JDK 11 移除了 Java EE and CORBA 的模块，需要手动引入。</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs xml"><span class="hljs-comment">&lt;!-- JAVAX --&gt;</span>  <br></code></pre></td></tr></table></figure>
+
+<h3 id="升级外部中间件"><a href="#升级外部中间件" class="headerlink" title="升级外部中间件"></a><strong>升级外部中间件</strong></h3><p>解决了编译找不到类的问题，接下来就该升级依赖的外部中间件了。对于应用来说，也就是升级 SpringBoot 的版本。支持 JDK 17 的版本是 Spring 5.3，对应 SpringBoot 2.5。</p>
+<p>在这里建议升级至 SpringBoot 2.7，从 2.5 升级至 2.7 几乎没有需要改动的地方，同时高版本的 SprngBoot 所约定的依赖，对 JDK 17 的支持也更好。</p>
+<p>建议进行大版本逐个升级，比如从 2.0 升级至 2.1。每升一个版本，就要仔细观察依赖版本的变化，掌握每个依赖升级的情况。SpringBoot 的升级其实意味着把所有开源组件约定版本进行大版本升级，接口弃用，破坏性兼容更新较多，需要一一鉴别。</p>
+<p>下面以升级 Spring Boot 2.1 为例，说明升级的步骤：</p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259844.png" srcset="/img/loading.gif" lazyload alt="图片"></p>
+<p>至此，Spring Boot 2.1 升级完毕。接下来分析一次依赖树变化，和升级前的依赖树进行比较，查看依赖变化范围是否全部已知可控。完成后进行 Spring Boot 2.2 的升级。</p>
+<p>以下为需要注意的升级事项，仅供参考：</p>
+<ul>
+<li><p>可以先升级到 JDK 11，一边启动一边验证。但不要在 JDK 11 使用 ZGC，ZGC 的堆预留与可用堆的比例太大，有时会导致 OOM</p>
+</li>
+<li><p>代码中存在同 Bean，启动时 Springboot 2.0 会自动进行覆盖，高版本开启覆盖，需要指定 <code>spring.main.allow-bean-definition-overriding</code> 为 <code>true</code></p>
+</li>
+<li><p>Spring Boot 2.2 默认的单元测试 Junit 升级至 5，Junit 4 的单元测试建议进行升级，改动不大</p>
+</li>
+<li><p>Spring Boot 2.4 不再支持 Junit 4 的单元测试，如果需要可以手动引入 Vintage 引擎</p>
+</li>
+<li><p>Spring Boot 2.4 配置文件处理逻辑变更，注意阅读更新日志</p>
+</li>
+<li><p>Spring Boot 2.6 默认禁用 Bean 循环依赖，可以通过将 <code>spring.main.allow-circular-references</code> 设置为 <code>true</code> 开启</p>
+</li>
+<li><p>Spring Boot 2.7 自动配置注册文件变更，<code>spring.factories</code> 中的内容需要移动至 <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code> 文件下</p>
+</li>
+<li><p><code>spring-boot-properties-migrator</code> 可以识别弃用的属性，可以考虑使用</p>
+</li>
+<li><p>Spring Framework 5.2 需要 Jackson 2.9.7+，注意阅读更新日志</p>
+</li>
+<li><p>Spring Framework 5.2 注解检索算法重构，所有自定义注释都必须使用 <code>@Retention(RetentionPolicy.RUNTIME)</code> 进行注释，以便 Spring 能够找到它们</p>
+</li>
+<li><p>Spring Framework 5.3 修改了很多东西，但都与应用无关，请关注更新日志</p>
+</li>
+<li><p>ASM 仅单元测试 Mock 在使用，无需特殊关注，做好 JUnit 升级兼容即可</p>
+</li>
+<li><p>CGLIB 大版本升级以兼容字节码版本为主，关注好变更日志即可</p>
+</li>
+<li><p>Lombok 即使是小版本升级，也会有破坏性更新，需要仔细阅读每个版本的更新日志，建议少用 Lombok</p>
+</li>
+<li><p>Hibernate 没有太大的破坏性更新，关注好变更日志即可</p>
+</li>
+<li><p>JUnit 升级主要关注大版本变更，如 4 升 5，小版本没有特别大的破坏性更新，并且是单元测试使用的依赖，可以放心升级或者不升级</p>
+</li>
+<li><p>Jackson 2.11，对 <code>java.util.Date</code> 和 <code>java.util.Calendar</code> 默认格式进行了更改，注意查看更新日志进行兼容</p>
+</li>
+<li><p>注意字节码增强相关依赖的升级</p>
+</li>
+<li><p>注意本地缓存升级</p>
+</li>
+<li><p>注意 Netty 升级，关注更新日志</p>
+</li>
+</ul>
+<h3 id="升级内部中间件"><a href="#升级内部中间件" class="headerlink" title="升级内部中间件"></a><strong>升级内部中间件</strong></h3><p>内部中间件升级较为简单，主要是关注 JMQ、JSF 版本。其中 JSF 依赖的 Netty 和 Javassist 等都需要升级，Netty 版本较低会有内存泄漏问题。</p>
+<h3 id="使用的依赖版本"><a href="#使用的依赖版本" class="headerlink" title="使用的依赖版本"></a><strong>使用的依赖版本</strong></h3><p>给大家参考下升级后的依赖版本</p>
+<figure class="highlight apache"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs apache"><span class="hljs-section">&lt;properties&gt;</span>  <br></code></pre></td></tr></table></figure>
+
+<h3 id="JVM-启动参数升级"><a href="#JVM-启动参数升级" class="headerlink" title="JVM 启动参数升级"></a><strong>JVM 启动参数升级</strong></h3><p>远程 DEBUG 参数有所变化：</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ini"><span class="hljs-attr">JAVA_DEBUG_OPTS</span>=<span class="hljs-string">&quot; -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:8000 &quot;</span><br></code></pre></td></tr></table></figure>
+
+<p>打印 GC 日志参数的变化，在预发环境开启了日志进行观察：</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ini"><span class="hljs-attr">JAVA_GC_LOG_OPTS</span>=<span class="hljs-string">&quot; -Xlog:gc*:file=/export/logs/gc.log:time,tid,tags:filecount=10:filesize=10m &quot;</span><br></code></pre></td></tr></table></figure>
+
+<p>使用了 ZGC 的部分 JVM 参数：</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ini"><span class="hljs-attr">JAVA_MEM_OPTS</span>=<span class="hljs-string">&quot; -server -Xmx12g -Xms12g -XX:MaxMetaspaceSize=256m -XX:MetaspaceSize=256m -XX:MaxDirectMemorySize=2048m -XX:+UseZGC -XX:ZAllocationSpikeTolerance=3 -XX:ParallelGCThreads=8 -XX:CICompilerCount=3 -XX:-RestrictContended -XX:+AlwaysPreTouch -XX:+ExplicitGCInvokesConcurrent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/logs &quot;</span><br></code></pre></td></tr></table></figure>
+
+<p>内部依赖需要访问 JDK 模块，如 UMP、JSF、虫洞、MyBatis、DUCC、R2M、SGM：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs lua"><span class="hljs-keyword">if</span> <span class="hljs-string">[[ &quot;$JAVA_VERSION&quot; -ge 11 ]]</span>; <span class="hljs-keyword">then</span>  <br></code></pre></td></tr></table></figure>
+
+<p>启动后完整的启动参数如下：</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs routeros">-javaagent:/export/package/sgm-probe-java/sgm-probe-5.9.5-product/sgm-agent-5.9.5.jar -Dsgm.server.<span class="hljs-attribute">address</span>=http://sgm.jdfin.local -Dsgm.app.<span class="hljs-attribute">name</span>=market-reduction-center -Dsgm.agent.sink.http.connection.<span class="hljs-attribute">requestTimeout</span>=2000 -Dsgm.agent.sink.http.connection.<span class="hljs-attribute">connectTimeout</span>=2000 -Dsgm.agent.sink.http.<span class="hljs-attribute">minAlive</span>=1 -Dsgm.agent.virgo.<span class="hljs-attribute">address</span>=10.24.216.198:8999,10.223.182.52:8999,10.25.217.95:8999 -Dsgm.agent.<span class="hljs-attribute">zone</span>=m6 -Dsgm.agent.<span class="hljs-attribute">group</span>=m6-discount -Dsgm.agent.<span class="hljs-attribute">tenant</span>=jdjr -Dsgm.deployment.<span class="hljs-attribute">platform</span>=jdt-jdos <span class="hljs-attribute">--add-opens</span>=jdk.management/com.sun.management.internal=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.management/sun.management=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.management/java.lang.management=ALL-UNNAMED <span class="hljs-attribute">-DJDOS_DATACENTER</span>=JXQ -Ddeploy.app.<span class="hljs-attribute">name</span>=jdos_kj_market-reduction-center -Ddeploy.app.<span class="hljs-attribute">id</span>=30005051 -Ddeploy.instance.<span class="hljs-attribute">id</span>=0 -Ddeploy.instance.<span class="hljs-attribute">name</span>=server -Djava.awt.<span class="hljs-attribute">headless</span>=<span class="hljs-literal">true</span> -Djava.net.<span class="hljs-attribute">preferIPv4Stack</span>=<span class="hljs-literal">true</span> -Djava.util.Arrays.<span class="hljs-attribute">useLegacyMergeSort</span>=<span class="hljs-literal">true</span> -Dog4j2.<span class="hljs-attribute">contextSelector</span>=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector -Dlog4j2.<span class="hljs-attribute">AsyncQueueFullPolicy</span>=Discard -Xmx12g -Xms12g -XX:<span class="hljs-attribute">MaxMetaspaceSize</span>=256m -XX:<span class="hljs-attribute">MetaspaceSize</span>=256m -XX:<span class="hljs-attribute">MaxDirectMemorySize</span>=2048m -XX:+UseZGC -XX:<span class="hljs-attribute">ZAllocationSpikeTolerance</span>=3 -XX:<span class="hljs-attribute">ParallelGCThreads</span>=8 -XX:<span class="hljs-attribute">CICompilerCount</span>=3 -XX:-RestrictContended -XX:+AlwaysPreTouch -XX:+ExplicitGCInvokesConcurrent -XX:+HeapDumpOnOutOfMemoryError -XX:<span class="hljs-attribute">HeapDumpPath</span>=/export/logs <span class="hljs-attribute">--add-opens</span>=java.base/sun.net.util=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/sun.util.calendar=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/java.util=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/java.math=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/sun.security.action=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/java.lang=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/java.net=ALL-UNNAMED <span class="hljs-attribute">--add-opens</span>=java.base/java.time=ALL-UNNAMED -Dloader.<span class="hljs-attribute">path</span>=/export/package/jdos_kj_market-reduction-center/conf<br></code></pre></td></tr></table></figure>
+
+<p><strong>3.4  系统验证</strong></p>
+<p>系统可以成功启动后，就可以进行功能验证。有几个验证重点与方法：</p>
+<ul>
+<li><p>首先可以通过单元测试快速进行系统全面回归，避免出现 JDK API、中间件 API 变更导致的业务异常</p>
+</li>
+<li><p>部署到测试环境，验证各个中间件是否正常，如 DUCC 开关下发，MQ 收发，JSF 接口调用等等，系统中所有用到的中间件都需要一一验证</p>
+</li>
+<li><p>然后可以开始进行核心业务的验证，这时候可以利用测试同学的测试自动化能力加人工补充场景，快速进行核心业务回归。其中研发需要观察系统被调用时的所有异常日志，包括警告，明确每条日志产生的原因</p>
+</li>
+<li><p>验证完成后，可以部署到联调环境，利用外部同事联调时的请求进一步进行验证</p>
+</li>
+<li><p>充分在测试环境观察后，部署至预发环境，利用外部同事联调时的请求进一步进行验证，并进行常态化压测，验证优化效果与瓶颈</p>
+</li>
+<li><p>经过预发长时间验证，没有问题后，部署一台生产，通过回放生产流量进一步进行验证</p>
+</li>
+<li><p>回放流量无异常后，开始承接生产流量，按接口开量，进行若干周的观察</p>
+</li>
+<li><p>逐步切量，直到全量上线</p>
+</li>
+</ul>
+<p><strong>04</strong> </p>
+<p> <strong>GC调优</strong> </p>
+<p>理解，首先 MCube 会依据模板缓存状态判断是否需要网络获取最新模板，当获取到模板后进行模板加载，加载阶段会将产物转换为视图树的结构，转换完成后将通过表达式引擎解析表达式并取得正确的值，通过事件解析引擎解析用户自定义事件并完成事件的绑定，完成解析赋值以及事件绑定后进行视图的渲染，最终将目</p>
+<p><strong>4.1  ZGC介绍</strong></p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259823.png" srcset="/img/loading.gif" lazyload alt="图片"></p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259800.png" srcset="/img/loading.gif" lazyload alt="图片"></p>
+<p><img src="/markdown-img/JDK17%E8%90%A5%E9%94%80%E5%88%9D%E4%BD%93%E9%AA%8C%E2%80%94%E2%80%94%E4%BA%9A%E6%AF%AB%E7%A7%92%E5%81%9C%E9%A1%BFZGC%E8%90%BD%E5%9C%B0%E5%AE%9E%E8%B7%B5.assets/640-20231216215259807.png" srcset="/img/loading.gif" lazyload alt="图片">图4、5、6.ZGC介绍</p>
+<p>如图所示，ZGC 的定位是一个最大暂停时间小于 1ms，且能够处理大小从 8MB 到 16TB 的堆，并且易于调优的垃圾回收器。ZGC 只有三个 STW 阶段，具体流程网上有大量类似文章，这里不做详细介绍。</p>
+<p><strong>4.2  优化方向</strong></p>
+<p>目前本文提到的应用日常使用 G1 约 30ms 的 GC 停顿时间，不到 1 分钟就会触发一次，大促时频率更高，暂停时间更长，导致接口性能波动较大。随着业务发展，为了优化系统大量应用了本地缓存，导致存活对象较多。ZGC 暂停时间不随堆、活动集或根集大小而增加，且极低的 GC 时间正是被需要的特性，因此决定使用 ZGC。</p>
+<p>ZGC 作为一个现代化 GC，没有必要做过多的优化，默认配置已经可以解决 99.9% 的场景。但是应用会承接大促流量，根据观察，瞬时流量激增时 GC 时机较晚，因此应对突发流量是 ZGC 调优的一个目标，其他属性不做任何调整。</p>
+<p><strong>4.3  优化措施</strong></p>
+<p>ZGC 的一个优化措施就是足够大的堆，一般来说，给 ZGC 的内存越多越好，但也没必要浪费，通过压测观察 GC 日志，取得一个合适的值即可。只要保证：</p>
+<ol>
+<li><p>堆可以容纳应用程序产生的实时垃圾</p>
+</li>
+<li><p>堆中有足够的空间，以便在 GC 运行时，为新的垃圾分配提供空间</p>
+</li>
+</ol>
+<p>因此，将机器升级成 8C 16G 配置，观察 GC 日志根据应用情况调整内存占用配置，最终设定为 <code>-Xmx12g -Xms12g -XX:MaxMetaspaceSize=256m -XX:MetaspaceSize=256m -XX:MaxDirectMemorySize=2048m</code>，提升 ZGC 的效果。</p>
+<p>剩下的其他优化措施则视情况而定，可以调整触发 GC 的时机，也可以改为基于固定时间间隔触发 GC。</p>
+<p>略微提升了触发时机，<code>-XX:ZAllocationSpikeTolerance=3</code> （默认为 2）应对突发流量。</p>
+<p><code>CICompilerCount ParallelGCThreads</code> 一个是提升 JIT 编译速度，一个是垃圾收集器并行阶段使用的线程数，根据实际情况略微增加，牺牲一点点 CPU 使用率，提升下效率。</p>
+<p>另外还可以开启 <code>Large Pages</code> 进一步提升性能。这一步没有做，因为现在部署方式为一台物理机 Docker 混部署。开启需要修改内核，影响宿主机的其他镜像。</p>
+<p><strong>05</strong> </p>
+<p> <strong>总结</strong> </p>
+<p>理解，首先 MCube 会依据模板缓存状态判断是否需要网络获取最新模板，当获取到模板后进行模板加载，加载阶段会将产物转换为视图树的结构，转换完成后将通过表达式引擎解析表达式并取得正确的值，通过事件解析引擎解析用户自定义事件并完成事件的绑定，完成解析赋值以及事件绑定后进行视图的渲染，最终将目</p>
+<p>至此，调优完成，目前已在线上跑了一段时间，每周都有三次常态化压测，一切正常。</p>
+<p>以上升级心得分享给大家，希望对各位有所帮助</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA/" class="category-chain-item">计算机</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA/%E5%90%8E%E7%AB%AF/" class="category-chain-item">后端</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Java/" class="print-no-link">#Java</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>JDK17营销初体验——亚毫秒停顿ZGC落地实践</div>
+      <div>https://moli-mark.github.io/2025/06/29/JDK17营销初体验——亚毫秒停顿ZGC落地实践/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Molimark</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2025年6月29日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2025/06/29/%E4%B8%80%E5%B0%8F%E6%97%B6%EF%BC%8C%E6%90%AD%E5%BB%BA%E5%B1%9E%E4%BA%8E%E8%87%AA%E5%B7%B1%E7%9A%84%E4%B8%AA%E4%BA%BA%E5%8D%9A%E5%AE%A2/" title="一小时，搭建属于自己的个人博客">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">一小时，搭建属于自己的个人博客</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2025/06/29/ThreadLocal%E5%8E%9F%E7%90%86%E8%AF%A6%E8%A7%A3/" title="ThreadLocal原理详解">
+                        <span class="hidden-mobile">ThreadLocal原理详解</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       <span>Mice</span> <i class="iconfont icon-love"></i> <span>Rice</span> 
+    </div>
+  
+  
+    <div class="statistics">
+  
+  
+
+  
+    
+      <span id="busuanzi_container_site_pv" style="display: none">
+        总访问量 
+        <span id="busuanzi_value_site_pv"></span>
+         次
+      </span>
+    
+    
+      <span id="busuanzi_container_site_uv" style="display: none">
+        总访客数 
+        <span id="busuanzi_value_site_uv"></span>
+         人
+      </span>
+    
+    
+
+  
+
+</div>
+
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://lib.baomitu.com/jquery/3.6.4/jquery.min.js" ></script>
+<script  src="https://lib.baomitu.com/twitter-bootstrap/4.6.1/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://lib.baomitu.com/typed.js/2.0.12/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/tocbot/4.20.1/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://lib.baomitu.com/clipboard.js/2.0.11/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/anchor-js/5.0.0/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  <script  src="/js/local-search.js" ></script>
+
+  <script defer src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js" ></script>
+
+
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>
